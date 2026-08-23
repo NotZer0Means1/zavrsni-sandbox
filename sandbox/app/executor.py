@@ -196,10 +196,6 @@ class SandboxExecutor:
 
     def _collect_output(self, container) -> Tuple[str, str]:
         cap = self.cfg.limits.output_bytes
-        try:
-            out, err = container.logs(stdout=True, stderr=True, demux=True)
-        except APIError:
-            return "", ""
 
         def _decode(raw: Optional[bytes]) -> str:
             if not raw:
@@ -208,6 +204,14 @@ class SandboxExecutor:
             if len(raw) > cap:
                 text += f"\n... [izlaz skracen na {cap} bajtova]"
             return text
+
+        # stdout i stderr dohvacaju se odvojeno jer starije verzije docker
+        # biblioteke ne podrzavaju parametar demux u container.logs().
+        try:
+            out = container.logs(stdout=True, stderr=False)
+            err = container.logs(stdout=False, stderr=True)
+        except APIError:
+            return "", ""
 
         return _decode(out), _decode(err)
 
