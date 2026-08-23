@@ -1,0 +1,24 @@
+# Slika izvrsnog okruzenja u kojem se pokrece agentski kod.
+# Namjerno je minimalna: bez ljuske paketa, bez alata za mrezu, bez prevodioca.
+FROM python:3.12-slim-bookworm
+
+# Uklanjanje alata koji napadacu olaksavaju rad unutar okruzenja.
+RUN set -eux; \
+    apt-get purge -y --auto-remove curl wget 2>/dev/null || true; \
+    rm -rf /var/lib/apt/lists/* /usr/bin/apt* /usr/bin/dpkg* \
+           /sbin/apt* /usr/local/bin/pip* /usr/bin/pip* 2>/dev/null || true
+
+# Radni direktorij u koji orkestrator upisuje skriptu prije pokretanja.
+# Vlasnik je nobody, a prava su samo za citanje.
+RUN mkdir -p /sandbox && chown 65534:65534 /sandbox && chmod 555 /sandbox
+
+WORKDIR /sandbox
+USER 65534:65534
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONNOUSERSITE=1 \
+    HOME=/tmp
+
+# Zadana naredba; orkestrator je ionako nadjacava.
+CMD ["python3", "-I", "-B", "/sandbox/main.py"]

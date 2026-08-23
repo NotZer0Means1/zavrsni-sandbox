@@ -1,0 +1,7 @@
+# Kopirati u terraform.tfvars i popuniti vlastitim vrijednostima.
+# terraform.tfvars ne stavljati u javni repozitorij.
+
+region           = "eu-central-1"
+instance_type    = "m7i.large"           # 8 GB RAM, dovoljno za model llama3.1 (8B)
+key_name         = "moj-ec2-kljuc"       # ime postojeceg key para u eu-central-1
+ssh_ingress_cidr = "203.0.113.10/32"     # vlastita javna IP adresa, /32

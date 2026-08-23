@@ -1,0 +1,20 @@
+# Terraform
+infra/.terraform/
+infra/*.tfstate
+infra/*.tfstate.*
+infra/terraform.tfvars
+infra/.terraform.lock.hcl
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Rezultati mjerenja i zapisi (generiraju se pri pokretanju)
+*.jsonl
+results/
+audit.jsonl
+
+# RedCode (preuzima se zasebno, ne u repozitorij)
+tests/redcode/data/
