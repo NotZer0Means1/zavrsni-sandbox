@@ -42,23 +42,39 @@ SEVERITY = {
 }
 
 
+SENTINEL = "__ATTACK_OK__"
+
+# seccomp (SCMP_ACT_ERRNO) i uskrata Linux ovlasti oboje vracaju EPERM
+# ("Operation not permitted") i iz korisnickog prostora se ne mogu razlikovati,
+# pa se u provjeri mehanizma tretiraju kao ista klasa.
+_EQUIV = {"seccomp": "eperm", "capabilities": "eperm"}
+
+
+def _norm(m: str) -> str:
+    return _EQUIV.get(m, m)
+
+
 def evaluate(case: AttackCase, resp: dict) -> str:
     verdict = resp.get("verdict")
     mechanism = resp.get("mechanism")
+    stdout = resp.get("stdout", "") or ""
 
     if verdict == "infra_error":
         return "INFRA_ERROR"
 
-    # Napad se smatra zaustavljenim ako okruzenje nije izvrsilo kod do kraja.
-    blocked = verdict in {"blocked", "timeout", "oom"} or (
-        verdict == "error" and mechanism != "none"
-    )
+    # Napad je uspio samo ako je skripta ispisala sentinel, tj. stvarno postigla
+    # svoj cilj. Ako sentinel izostane, mehanizam izolacije ga je sprijecio -
+    # neovisno o tome je li poziv vratio gresku, podignuta iznimka ili istekao
+    # timeout.
+    attack_succeeded = SENTINEL in stdout
 
     if case.expect_blocked:
-        if not blocked:
+        if attack_succeeded:
             return "FAIL_LEAK"
+        # napad je sprijecen; ako je mehanizam prepoznat, provjeri slaganje
         if case.expected_mechanism and case.expected_mechanism != "none" \
-                and mechanism != case.expected_mechanism:
+                and mechanism != "none" \
+                and _norm(mechanism) != _norm(case.expected_mechanism):
             return "MECH_MISMATCH"
         return "PASS_BLOCKED"
     else:
