@@ -18,3 +18,5 @@ audit.jsonl
 
 # RedCode (preuzima se zasebno, ne u repozitorij)
 tests/redcode/data/
+
+*.pem

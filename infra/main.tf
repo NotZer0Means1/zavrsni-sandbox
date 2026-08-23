@@ -31,7 +31,7 @@ variable "region" {
 
 variable "instance_type" {
   type    = string
-  default = "m7i.large" # 2 vCPU, 8 GB RAM: runc + gVisor + model llama3.1 (8B)
+  default = "m7i-flex.large" # 2 vCPU, 8 GB RAM (flex CPU): runc + gVisor + llama3.1 (8B)
 }
 
 variable "ssh_ingress_cidr" {

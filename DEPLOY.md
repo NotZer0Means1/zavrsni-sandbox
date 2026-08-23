@@ -1,8 +1,8 @@
 # Postavljanje i pokretanje na AWS-u (eu-central-1)
 
 Uputa vodi od praznog AWS računa do gotovih tablica rezultata. Cijeli je postupak
-oko 30 minuta, od čega je većina čekanje. Trošak je zanemariv: instanca m7i.large
-u eu-central-1 stoji približno 0,10 USD na sat, a cijelo testiranje traje 1–2 sata.
+oko 30 minuta, od čega je većina čekanje. Trošak je zanemariv: instanca m7i-flex.large
+u eu-central-1 stoji približno 0,096 USD na sat, a cijelo testiranje traje 1–2 sata.
 
 > VAŽNO: na kraju obavezno pokrenuti `terraform destroy` (korak 8). Instanca
 > troši novac dok god postoji.
@@ -75,7 +75,7 @@ Otvori `terraform.tfvars` i upiši:
 
 ```hcl
 region           = "eu-central-1"
-instance_type    = "m7i.large"            # 8 GB RAM, dovoljno za model llama3.1 (8B)
+instance_type    = "m7i-flex.large"            # 8 GB RAM, dovoljno za model llama3.1 (8B)
 key_name         = "sandbox-key"          # ime iz koraka 2
 ssh_ingress_cidr = "TVOJA.JAVNA.IP.ADR/32" # vidi nize
 ```
@@ -137,7 +137,7 @@ pip install -r sandbox/requirements.txt
 # Izgradi sliku izvrsnog okruzenja
 docker build -f sandbox/Dockerfile.runner -t sandbox-runner:latest sandbox/
 
-# Povuci lokalni model za agenta (za pokus S6). llama3.1 (8B) stane u m7i.large.
+# Povuci lokalni model za agenta (za pokus S6). llama3.1 (8B) stane u m7i-flex.large.
 ollama pull llama3.1
 ```
 
