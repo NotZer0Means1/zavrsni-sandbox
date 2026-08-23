@@ -13,9 +13,8 @@ zavrsetka. Kontejner se pokrece uz sljedeca ogranicenja:
 """
 from __future__ import annotations
 
-import io
+import base64
 import logging
-import tarfile
 import time
 import uuid
 from typing import Optional, Tuple
@@ -27,9 +26,6 @@ from .config import Settings, settings as default_settings
 from .models import ExecuteResponse, Mechanism, Verdict
 
 log = logging.getLogger(__name__)
-
-WORKDIR = "/sandbox"
-SCRIPT_NAME = "main.py"
 
 # Obrasci u stderr-u prema kojima se zakljucuje koji je mehanizam zaustavio radnju.
 # Redoslijed je bitan: specificniji obrasci moraju doci prije opcenitih.
@@ -54,22 +50,19 @@ class InfrastructureError(RuntimeError):
     """Kvar orkestratora, a ne posljedica izvrsenog koda."""
 
 
-def _tar_bytes(name: str, content: str) -> bytes:
-    """Pakira izvorni kod u tar arhivu za prijenos u kontejner.
+def _decoder_command(code: str) -> list:
+    """Gradi naredbu koja kod predaje base64-kodiran kao argument i izvrsava ga.
 
-    Kod se upisuje prije pokretanja kontejnera, dok je zapisivanje jos dopusteno.
-    Nakon pokretanja korijenski je datotecni sustav samo za citanje.
+    Kod se ne upisuje na disk nego postoji samo kao argument procesa, pa
+    korijenski datotecni sustav moze ostati samo za citanje. Time se izbjegava
+    zapisivanje u kontejner prije pokretanja i dobiva jaca izolacija.
     """
-    payload = content.encode("utf-8")
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w") as tar:
-        info = tarfile.TarInfo(name=name)
-        info.size = len(payload)
-        info.mode = 0o444
-        info.uid = 65534
-        info.gid = 65534
-        tar.addfile(info, io.BytesIO(payload))
-    return buf.getvalue()
+    b64 = base64.b64encode(code.encode("utf-8")).decode("ascii")
+    runner = (
+        "import base64;"
+        f"exec(compile(base64.b64decode('{b64}').decode('utf-8'),'<agent>','exec'))"
+    )
+    return ["python3", "-I", "-B", "-c", runner]
 
 
 def classify_mechanism(stderr: str, verdict: Verdict, oom: bool) -> Mechanism:
@@ -109,8 +102,7 @@ class SandboxExecutor:
         container = None
         t_create = time.perf_counter()
         try:
-            container = self._create_container(execution_id)
-            container.put_archive(WORKDIR, _tar_bytes(SCRIPT_NAME, code))
+            container = self._create_container(execution_id, code)
 
             t_start = time.perf_counter()
             container.start()
@@ -151,7 +143,7 @@ class SandboxExecutor:
             self._destroy(container)
 
     # ------------------------------------------------------------- interno
-    def _create_container(self, execution_id: str):
+    def _create_container(self, execution_id: str, code: str):
         cfg, limits = self.cfg, self.cfg.limits
 
         security_opt = []
@@ -165,9 +157,9 @@ class SandboxExecutor:
         return self.client.containers.create(
             image=cfg.runner_image,
             name=f"sbx-{execution_id}",
-            command=["python3", "-I", "-B", f"{WORKDIR}/{SCRIPT_NAME}"],
+            command=_decoder_command(code),
             runtime=cfg.runtime,
-            working_dir=WORKDIR,
+            working_dir="/tmp",
             user=cfg.run_as,
             network_mode=cfg.network_mode,
             network_disabled=cfg.network_mode == "none",
