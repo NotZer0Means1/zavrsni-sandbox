@@ -27,7 +27,7 @@ from pathlib import Path
 
 import requests
 
-CODE_FIELDS = ("code", "script", "prompt_code", "input", "content")
+CODE_FIELDS = ("Code", "code", "script", "prompt_code", "input", "content")
 
 
 def extract_code(obj: dict) -> str | None:
@@ -40,7 +40,7 @@ def extract_code(obj: dict) -> str | None:
 
 def load_dataset(path: Path, limit: int) -> list[dict]:
     cases: list[dict] = []
-    files = list(path.rglob("*.json")) + list(path.rglob("*.jsonl"))
+    files = sorted(path.rglob("*.json")) + sorted(path.rglob("*.jsonl"))
     for f in files:
         try:
             if f.suffix == ".jsonl":
@@ -55,8 +55,10 @@ def load_dataset(path: Path, limit: int) -> list[dict]:
                 continue
             code = extract_code(obj)
             if code:
-                cases.append({"id": f"{f.stem}-{i}", "code": code,
-                              "category": obj.get("category") or obj.get("index") or f.parent.name})
+                idx = obj.get("Index") or obj.get("index") or ""
+                cat = obj.get("category") or (str(idx).split("_")[0] if idx else f.parent.name)
+                cases.append({"id": f"{obj.get('Index', f'{f.stem}-{i}')}", "code": code,
+                              "category": cat})
             if len(cases) >= limit:
                 return cases
     return cases
